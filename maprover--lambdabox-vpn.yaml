@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CloudFormation Template
+Parameters:
+  VPCCIDR:
+    Type: String
+    Description: IP Address range for the VPN connected VPC
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 10.0.0.0/16
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PrivateVpnSubnetCIDR:
+    Type: String
+    Description: IP Address range for the VPN connected Subnet
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 10.0.1.0/24
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  PublicVpnSubnetCIDR:
+    Type: String
+    Description: IP Address range for the VPN connected Subnet
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 10.0.200.0/24
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  KeyName:
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+Resources:
+  VPNVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      CidrBlock: !Ref VPCCIDR
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackName'
+        - Key: Project
+          Value: maprover.vpn
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 085ea16f-c700-4f09-8598-b5fc8136fa1d
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackName'
+        - Key: Project
+          Value: maprover.vpn
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 522c3440-5007-4946-a89b-0cfe65ff06ca
+  PrivateSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPNVPC
+      CidrBlock: !Ref PrivateVpnSubnetCIDR
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackName'
+        - Key: Project
+          Value: maprover.vpn
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 89a82df9-0c89-47a8-a271-794ae49cbe50
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPNVPC
+      CidrBlock: !Ref PublicVpnSubnetCIDR
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackName'
+        - Key: Project
+          Value: maprover.vpn
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 832b1f62-5ea6-4989-b697-12649af7cf7a
+  VPNPublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow vpn to client host
+      VpcId:
+         Ref: VPNVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 945
+        ToPort: 945
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 943
+        ToPort: 943
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 1194
+        ToPort: 1194
+        CidrIp: 0.0.0.0/0
+  AttachGatewaytoVPC:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId:
+        Ref: VPNVPC
+      InternetGatewayId:
+        Ref: InternetGateway
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 373d945c-e372-40bb-ac39-af33d4a5b692
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPNVPC
+      Tags:
+        - Key: Application
+          Value: !Ref 'AWS::StackName'
+        - Key: Network
+          Value: Internet Connected Subnet
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: f05ac790-d2fb-453a-9139-dd09fa10c998
+  PublicSubnetRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: f8ecd256-1820-491d-95ae-e0d57eeb4550
+  PrivateRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: AttachGatewaytoVPC
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: 3d4e4362-5817-4c45-92d5-be2b1bef3c0e
+  VPNInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "ami-00fe7cf9c33fe0cd4"
+      InstanceType: t2.small
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref VPNPublicSecurityGroup
+Metadata:
+  'AWS::CloudFormation::Designer':
+    522c3440-5007-4946-a89b-0cfe65ff06ca:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 660
+        'y': 150
+      z: 1
+      embeds: []
+    085ea16f-c700-4f09-8598-b5fc8136fa1d:
+      size:
+        width: 510
+        height: 420
+      position:
+        x: 10
+        'y': 100
+      z: 1
+      embeds:
+        - f05ac790-d2fb-453a-9139-dd09fa10c998
+        - 832b1f62-5ea6-4989-b697-12649af7cf7a
+        - 89a82df9-0c89-47a8-a271-794ae49cbe50
+    373d945c-e372-40bb-ac39-af33d4a5b692:
+      source:
+        id: 085ea16f-c700-4f09-8598-b5fc8136fa1d
+      target:
+        id: 522c3440-5007-4946-a89b-0cfe65ff06ca
+      z: 1
+    832b1f62-5ea6-4989-b697-12649af7cf7a:
+      size:
+        width: 150
+        height: 150
+      position:
+        x: 320
+        'y': 150
+      z: 2
+      parent: 085ea16f-c700-4f09-8598-b5fc8136fa1d
+      embeds: []
+      iscontainedinside:
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+    89a82df9-0c89-47a8-a271-794ae49cbe50:
+      size:
+        width: 150
+        height: 150
+      position:
+        x: 320
+        'y': 350
+      z: 2
+      parent: 085ea16f-c700-4f09-8598-b5fc8136fa1d
+      embeds: []
+      iscontainedinside:
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+    f05ac790-d2fb-453a-9139-dd09fa10c998:
+      size:
+        width: 240
+        height: 240
+      position:
+        x: 40
+        'y': 160
+      z: 2
+      parent: 085ea16f-c700-4f09-8598-b5fc8136fa1d
+      embeds:
+        - 3d4e4362-5817-4c45-92d5-be2b1bef3c0e
+      iscontainedinside:
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+        - 085ea16f-c700-4f09-8598-b5fc8136fa1d
+    3d4e4362-5817-4c45-92d5-be2b1bef3c0e:
+      size:
+        width: 60
+        height: 60
+      position:
+        x: 70
+        'y': 220
+      z: 3
+      parent: f05ac790-d2fb-453a-9139-dd09fa10c998
+      embeds: []
+      isassociatedwith:
+        - 522c3440-5007-4946-a89b-0cfe65ff06ca
+      iscontainedinside:
+        - f05ac790-d2fb-453a-9139-dd09fa10c998
+        - f05ac790-d2fb-453a-9139-dd09fa10c998
+        - f05ac790-d2fb-453a-9139-dd09fa10c998
+      dependson:
+        - 373d945c-e372-40bb-ac39-af33d4a5b692
+    f8ecd256-1820-491d-95ae-e0d57eeb4550:
+      source:
+        id: f05ac790-d2fb-453a-9139-dd09fa10c998
+      target:
+        id: 832b1f62-5ea6-4989-b697-12649af7cf7a
+      z: 2
+
